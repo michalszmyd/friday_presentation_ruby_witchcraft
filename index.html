@@ -1,0 +1,943 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<title>Slides</title>
+
+<meta name="description" content="">
+<meta name="author" content="">
+<meta name="generator" content="reveal-ck 4.0.0">
+
+
+
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+
+
+<!-- Code syntax highlighting -->
+<link rel="stylesheet" href="css/reset.css">
+<link rel="stylesheet" href="css/reveal.css">
+<link rel="stylesheet" href="css/theme/black.css" id="theme">
+
+<!-- Theme used for syntax highlighting of code -->
+<link rel="stylesheet" href="lib/css/monokai.css">
+
+<link rel="stylesheet" href="css/reveal-ck.css">
+
+<link rel="stylesheet" href="css/railwaymen.css">
+
+<!-- Printing and PDF exports -->
+<script>
+  var link = document.createElement( 'link' );
+  link.rel = 'stylesheet';
+  link.type = 'text/css';
+  link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+  document.getElementsByTagName( 'head' )[0].appendChild( link );
+</script>
+
+  </head>
+
+  <body>
+    <div class="reveal">
+  <div class="slides">
+    <section>
+
+<h2>Ruby Witchcraft</h2>
+<p>Michał Szmyd</p>
+
+</section>
+<section>
+
+<h2>Table of Contents</h2>
+<ul>
+  <li>Enumerators</li>
+  <li>Negations</li>
+  <li>Calculations</li>
+  <li>Symbols and procs</li>
+  <li>Misc</li>
+</ul>
+
+</section>
+<section>
+
+<h2>Enumerators</h2>
+<p><a href="https://ruby-doc.org/core-3.1.1/Enumerable.html">Ruby Enumerable</a></p>
+<pre><code class="language-ruby">class CustomCollection
+	include Enumerable
+end
+</code></pre>
+
+</section>
+<section>
+
+<h2>Basic usage</h2>
+
+<pre><code class="language-ruby">class CustomCollection
+	include Enumerable
+
+	attr_reader :items
+
+	def initialize(items)
+		@items = items
+	end
+
+	def each(&amp;block)
+		items.each(&amp;block)
+	end
+end
+
+collection = CustomCollection.new([1, 2, 3])
+collection.map { _1 * 2 }
+# =&gt; [2, 4, 6]
+collection.find { _1 == 1 }
+# =&gt; 1
+</code></pre>
+
+</section>
+<section>
+
+<h2>Lazy loads</h2>
+
+<pre><code class="language-ruby">UserItem = Struct.new(:id, :email, keyword_init: true)
+
+class CustomUsersCollection
+	include Enumerable
+
+	def each(&amp;block)
+		results.each(&amp;block)
+	end
+
+	private
+
+	def results
+		ActiveRecord::Base
+			.connection
+			.execute(raw_sql)
+			.map { UserItem.new _1.symbolize_keys }
+		# [UserItem.new(id: 1, email: 'user@example.com')]
+	end
+
+	def raw_sql
+		"SELECT id, email FROM users"
+	end
+end
+</code></pre>
+
+<pre><code class="language-ruby">collection = CustomUsersCollection.new
+
+collection.map(&amp;:email)
+# =&gt; ['user@example.com']
+
+collection.to_a
+# =&gt; [UserItem, UserItem, UserItem]
+
+</code></pre>
+
+</section>
+<section>
+
+<h4>Wind it up</h4>
+<p>Chains and final results</p>
+<pre><code class="language-ruby">class CustomUsersCollection
+	include Enumerable
+
+	def initialize
+		@limit = 5
+		@offset = 0
+	end
+
+	def each(&amp;block) = results.each(&amp;block)
+
+	def limit(value) = @limit = value
+
+	def offset(value) = @offset = value
+
+	private
+
+	def results
+		ActiveRecord::Base.connection.execute(raw_sql).map { UserItem.new _1.symbolize_keys }
+	end
+
+	def limit_sql
+		ActiveRecord::Base.sanitize_sql_array(['LIMIT ?', @limit])
+	end
+
+	def offset_sql
+		ActiveRecord::Base.sanitize_sql_array(['LIMIT ?', @offset])
+	end
+
+	def raw_sql
+		"SELECT id, email FROM users #{limit_sql} #{offset_sql};"
+	end
+end
+</code></pre>
+
+</section>
+<section>
+
+<h4>Usage of lazy load</h4>
+<pre><code class="language-ruby">CustomUsersCollection.new.limit(5).map { _1.id }
+CustomUsersCollection.new.limit(5).offset(15).map { _1.id }
+</code></pre>
+
+</section>
+<section>
+
+<h4>Extending array methods</h4>
+<pre><code class="language-ruby">User = Struct.new(:id, :email, keyword_init: true)
+
+class UsersCollection
+	include Enumerable
+
+	attr_reader :list
+
+	def initialize(*list)
+		@list = list
+	end
+
+	def each(&amp;block) = list.each(&amp;block)
+
+	def find_by_id(id)
+		find { |element| element.id == id }
+	end
+end
+
+collection = UsersCollection.new(
+	User.new(id: 1, email: 'user@example.com'),
+	User.new(id: 2, email: 'user+2@example.com'),
+	User.new(id: 3, email: 'user+3@example.com')
+)
+
+collection.find_by_id(3)
+# =&gt; #&lt;struct User id=3, email="user+3@example.com"&gt;
+collection.each
+# =&gt; #&lt;Enumerator: [#&lt;struct User id=1, email="user@example.com"&gt;, #&lt;struct User id=2, email="user+2@example.com"&gt;, #&lt;struct User id=3, email="user+3@example.com"&gt;]:each&gt;
+</code></pre>
+
+</section>
+<section>
+
+<pre><code class="language-ruby">class Collection
+	include Enumerable
+
+	attr_reader :list
+
+	def initialize(list)
+		@list = list
+	end
+
+	def each(&amp;block)
+		list.each(&amp;block)
+	end
+
+	def flat_map!(&amp;block)
+		@list = list.flat_map(&amp;block)
+	end
+end
+</code></pre>
+
+</section>
+<section>
+
+<h4>Using extended array methods</h4>
+<pre><code class="language-ruby">collection = Collection.new([1, 2, 3, nil])
+collection.flat_map! { _1 &amp;&amp; _1 * 2 }
+collection
+# =&gt; [2, 4, 6]
+</code></pre>
+
+</section>
+<section>
+
+<h4>Inspecting</h4>
+<p>Inspecting the elements of an object</p>
+<pre><code class="language-ruby">class Collection
+	include Enumerable
+
+	def initialize(list)
+		@list = list
+	end
+
+	def each(&amp;block)
+		list.each(&amp;block)
+	end
+
+	def inspect = to_a
+end
+</code></pre>
+<pre><code class="language-ruby">Collection.new([1, 2, 3])
+# =&gt; [1, 2, 3]
+</code></pre>
+
+</section>
+<section>
+
+<p>Especially useful where the final array is not consumed from the instance variable (lazy load i.e.)</p>
+<pre><code class="language-ruby">User = Struct.new(:id, :name, keyword_init: true)
+
+class CustomUsersCollection
+	# ...
+
+	def results
+		[
+			User.new(id: 1, name: 'user1'),
+			User.new(id: 2, name: 'user2'),
+		]
+	end
+
+	def inspect
+		"#&lt;CustomUsersCollection:#{object_id} #{results.to_a}&gt;"
+	end
+end
+</code></pre>
+<pre><code class="language-ruby">CustomUsersCollection.new
+# =&gt; #&lt;CustomUsersCollection:280 [#&lt;struct User id=1, name="user1"&gt;, #&lt;struct User id=2, name="user2"&gt;]&gt;
+</code></pre>
+
+</section>
+<section>
+
+<h2>Negations</h2>
+<p><a href="https://ruby-doc.org/3.2.0/BasicObject.html#method-i-21">BasicObject docs</a></p>
+
+<pre><code class="language-ruby">!1
+# =&gt; false
+!false
+# =&gt; true
+!!true
+# =&gt; true
+</code></pre>
+
+</section>
+<section>
+
+<h4>Instance and class negation usage</h4>
+<pre><code class="language-ruby">class MyExample
+end
+</code></pre>
+<pre><code class="language-ruby">!MyExample
+# =&gt; false
+!MyExample.new
+# =&gt; false
+</code></pre>
+
+</section>
+<section>
+
+<h2>Negation as a method</h2>
+<pre><code class="language-ruby">MyExample.!
+# =&gt; false
+MyExample.new.!
+# =&gt; false
+</code></pre>
+
+</section>
+<section>
+
+<h3>Override instance and class methods</h3>
+<pre><code class="language-ruby">class MyExample
+	def self.!
+		:name_self
+	end
+
+	def !
+		:name
+	end
+end
+</code></pre>
+
+<pre><code class="language-ruby">!MyExample.new
+# =&gt; :name
+!!MyExample.new
+# =&gt; false
+
+!MyExample
+# =&gt; :name_self
+!!MyExample
+# =&gt; false
+</code></pre>
+
+</section>
+<section>
+
+<h4>Nested negation call</h4>
+
+<pre><code class="language-ruby">class FalsyClass
+	def self.!
+		:test
+	end
+end
+
+class MyExample
+	def self.!
+		FalsyClass
+	end
+end
+</code></pre>
+
+<pre><code class="language-ruby">!!MyExample
+# =&gt; :test
+</code></pre>
+
+</section>
+<section>
+
+<h3>Messing with ruby</h3>
+<pre><code class="language-ruby">class Object
+	def self.!
+		:class
+	end
+
+	def !
+		:instance
+	end
+end
+</code></pre>
+
+</section>
+<section>
+
+<h3>Example usage</h3>
+<p>Override the string negation that can represent a falsy value.</p>
+
+<pre><code class="language-ruby">module Orders
+	class ScheduleOrdersQuery &lt; String
+		def initialize
+			sql = ActiveRecord::Base.sanitize_sql_array(["orders.deliver_at &gt;= ?", Time.current - 15.minutes])
+
+			super(sql.to_s)
+		end
+
+		def !
+			"orders.deliver_at IS NULL"
+		end
+	end
+end
+</code></pre>
+<pre><code class="language-ruby">class OrdersQuery
+	def results
+		{
+			scheduled: Order.where(scheduled),
+			now: Order.where(!scheduled),
+		}
+	end
+
+	private
+
+	def scheduled
+		Users::ActiveWhereClause.new
+	end
+end
+</code></pre>
+
+</section>
+<section>
+
+<h2>Calculations</h2>
+
+</section>
+<section>
+
+<h3>Basic operations</h3>
+
+<pre><code class="language-ruby">class MyExample
+  def +(other)
+    0
+  end
+
+  def -(other)
+    0
+  end
+
+  def /(other)
+    0
+  end
+
+  def *(other)
+    0
+  end
+end
+</code></pre>
+
+<pre><code class="language-ruby">example = MyExample.new
+example + 10
+# =&gt; 0
+example + example
+# =&gt; 0
+example + nil
+# =&gt; 0
+</code></pre>
+
+</section>
+<section>
+
+<h4>Mathematical operations can be used as same as every other method</h4>
+
+<pre><code class="language-ruby">example = MyExample.new
+example.+(10)
+# =&gt; 0
+example.+(example)
+# =&gt; 0
+example.+(nil)
+# =&gt; 0
+</code></pre>
+
+</section>
+<section>
+
+<h3>Simple example with absolute value</h3>
+<pre><code class="language-ruby">class AbsoluteNumber
+  attr_reader :number
+
+  def initialize(number)
+    @number = number.abs
+  end
+
+  def inspect
+    number
+  end
+
+  def +(other)
+    (number + other).abs
+  end
+
+  def -(other)
+    (number - other).abs
+  end
+end
+</code></pre>
+<pre><code class="language-ruby">my_number = AbsoluteNumber.new(-15)
+# =&gt; 15
+my_number - 300
+# =&gt; 285
+</code></pre>
+
+</section>
+<section>
+
+<h3>More complex case</h3>
+<p>Kelvin and Celsius degrees calculations</p>
+
+</section>
+<section>
+
+<h2>Kelvin Degree class</h2>
+<pre><code class="language-ruby">class KelvinDegree
+	attr_reader :value
+
+	def initialize(value)
+		@value = value
+	end
+
+	def inspect
+		"#{value} *K"
+	end
+
+	def to_kelvin
+		self
+	end
+
+	def to_celsius
+		CelsiusDegree.new ((value * 100) - 27315).to_f / 100
+	end
+
+	def +(other)
+		case other.class.name
+		when "KelvinDegree"
+			KelvinDegree.new value + other.value
+		when "CelsiusDegree"
+			KelvinDegree.new value + other.to_kelvin.value
+		else
+			raise "Incorrect data"
+		end
+	end
+end
+</code></pre>
+
+</section>
+<section>
+
+<h2>Celsius Degree class</h2>
+<pre><code class="language-ruby">class CelsiusDegree
+	attr_reader :value
+
+	def initialize(value)
+		@value = value
+	end
+
+	def inspect
+		"#{value} *C"
+	end
+
+	def to_celsius
+		self
+	end
+
+	def to_kelvin
+		KelvinDegree.new value + 273.15
+	end
+
+	def +(other)
+		case other.class.name
+		when "KelvinDegree"
+			CelsiusDegree.new value + other.to_celsius.value
+		when "CelsiusDegree"
+			CelsiusDegree.new value + other.value
+		else
+			raise "Incorrect data"
+		end
+	end
+end
+</code></pre>
+
+</section>
+<section>
+
+<h4>Usage of the calculations</h4>
+<p>Now we can use mathematical calculations on this two types of objects</p>
+<pre><code class="language-ruby">k = KelvinDegree.new(300)
+# =&gt; 300 *K
+k2 = KelvinDegree.new(301)
+# =&gt; 301 *K
+c = CelsiusDegree.new(21)
+# =&gt; 21 *C
+c2 = CelsiusDegree.new(23)
+# =&gt; 23 *C
+
+c
+# =&gt; 21 *C
+c.to_kelvin
+# =&gt; 294.15 *K
+
+k.to_celsius
+# =&gt; 26.85 *C
+k2.to_celsius
+# =&gt; 27.85 *C
+
+k + c
+# =&gt; 594.15 *K
+c + k
+# =&gt; 47.85 *C
+</code></pre>
+
+</section>
+<section>
+
+<h3>Symbols &amp; Procedures</h3>
+
+</section>
+<section>
+
+<h4>Symbols and their procedures</h4>
+<p><a href="https://ruby-doc.org/3.2.0/Symbol.html#method-i-to_proc">Symbol Docs</a></p>
+<blockquote>
+  <p>Returns a Proc object which calls the method with name of self on the first parameter and passes the remaining parameters to the method.</p>
+</blockquote>
+
+<pre><code class="language-ruby">:symbol
+# =&gt; :symbol
+:symbol.to_proc
+# =&gt; #&lt;Proc:0x00007ff27e8d45f0(&amp;:symbol)&gt;
+</code></pre>
+
+</section>
+<section>
+
+<h4>Calling symbol procedure</h4>
+
+<pre><code class="language-ruby">:symbol.to_proc.call
+# =&gt; ArgumentError (no receiver given)
+</code></pre>
+
+<pre><code class="language-ruby">:to_s.to_proc.call(5)
+# =&gt; "5"
+</code></pre>
+
+</section>
+<section>
+
+<h4>Procedures combine composition</h4>
+<p><a href="https://ruby-doc.org/3.2.0/Proc.html#method-i-3E-3E">» Operator</a></p>
+
+<blockquote>
+  <p>Returns a proc that is the composition of this proc and the given g. The returned proc takes a variable number of arguments, calls this proc with them then calls g with the result.</p>
+</blockquote>
+
+<pre><code class="language-ruby">new_proc = :to_i.to_proc &gt;&gt; :to_f.to_proc &gt;&gt; proc { |element| element + 2 }
+# =&gt; #&lt;Proc:0x00007ff281025780&gt;
+new_proc.call(5.2)
+# =&gt; 7.0
+</code></pre>
+
+</section>
+<section>
+
+<h4>Passing the additional arguments to the mixed proc / symbol.to_proc</h4>
+<pre><code class="language-ruby">new_proc = :to_i.to_proc &gt;&gt; :to_f.to_proc &gt;&gt; proc { |x, y| x + 2 + y }
+new_proc.call(5.2, 3)
+# =&gt; ArgumentError (wrong number of arguments (given 1, expected 0))
+
+new_proc.call(5.2)
+# =&gt; TypeError (nil can't be coerced into Float)
+</code></pre>
+
+</section>
+<section>
+
+<h4>Correct order of procs while using additional parameters</h4>
+<pre><code class="language-ruby">new_proc = proc { |x, y| x + 2 + y } &gt;&gt; :to_i.to_proc &gt;&gt; :to_f.to_proc
+new_proc.call(5.2, 3)
+
+# =&gt; 10.0
+</code></pre>
+
+</section>
+<section>
+
+<h4>Opposite procs chaining</h4>
+<p><a href="https://ruby-doc.org/3.2.0/Proc.html#method-i-3E-3E">« Operator</a></p>
+<pre><code class="language-ruby">new_proc = :to_i.to_proc &gt;&gt; :to_f.to_proc &lt;&lt; proc { |x, y| x + 2 + y }
+new_proc.call(5.2, 3)
+
+# =&gt; 10.0
+</code></pre>
+
+</section>
+<section>
+
+<h4>Yield self / then</h4>
+<p>Using procs with yield self / then</p>
+<pre><code class="language-ruby">5.2.then(&amp;:to_i.to_proc &gt;&gt; :to_f.to_proc)
+# =&gt; 5.0
+</code></pre>
+
+</section>
+<section>
+
+<h4>Mapping and combine procs</h4>
+<pre><code class="language-ruby">words = [:hello, :world, :message, :test]
+words.map(&amp;:to_s.to_proc &gt;&gt; :upcase.to_proc &gt;&gt; :to_sym.to_proc)
+# =&gt; [:HELLO, :WORLD, :MESSAGE, :TEST]
+</code></pre>
+
+</section>
+<section>
+
+<h4>Allowing classes to be used as proc</h4>
+<pre><code class="language-ruby">class MyExample
+  class &lt;&lt; self
+		def to_proc
+			proc do |e|
+				e.to_i * 2
+			end
+		end
+  end
+end
+
+"10".then &amp;MyExample
+# =&gt; 20
+"10".then &amp;MyExample.to_proc
+# =&gt; 20
+</code></pre>
+
+</section>
+<section>
+
+<h4>Example usage</h4>
+
+<pre><code class="language-ruby">class User
+	def initialize(id:, name:)
+		@id = id
+		@name = name
+	end
+
+	class &lt;&lt; self
+		def to_proc
+			proc do |args|
+				new(**args)
+			end
+		end
+
+		def read
+			to_proc
+		end
+	end
+end
+
+users_list = [
+	{
+		id: 1,
+		name: "Andrzej Golota",
+	},
+	{
+		id: 2,
+		name: "Gosia Andrzejewicz"
+	}
+]
+
+users_list.map &amp;User
+# =&gt; [#&lt;User:0x00007fd20c12a850 @id=1, @name="Andrzej Golota"&gt;, #&lt;User:0x00007fd20c12a7d8 @id=2, @name="Gosia Andrzejewicz"&gt;]
+users_list.map &amp;User.read
+# =&gt; [#&lt;User:0x00007fd20f8282a8 @id=1, @name="Andrzej Golota"&gt;, #&lt;User:0x00007fd20f8280a0 @id=2, @name="Gosia Andrzejewicz"&gt;]
+
+</code></pre>
+
+</section>
+<section>
+
+<h3>Overriding other classes</h3>
+
+<pre><code class="language-ruby">class String
+	def to_proc
+		to_sym.to_proc
+	end
+end
+
+"10".then &amp;"to_i"
+# =&gt; 10
+</code></pre>
+
+</section>
+<section>
+
+<h2>Misc</h2>
+
+</section>
+<section>
+
+<h4>Override splat</h4>
+<pre><code class="language-ruby">class MyClass
+end
+
+object = MyClass.new
+data = *object
+
+# =&gt; [#&lt;MyClass:0x00007f8a471292c8&gt;]
+</code></pre>
+
+<pre><code class="language-ruby">class MyClass
+  def to_a
+    [1, 2, 3]
+  end
+end
+
+object = MyClass.new
+data = *object
+
+# =&gt; [1, 2, 3]
+</code></pre>
+
+</section>
+<section>
+
+<h3>Override const missing</h3>
+<pre><code class="language-ruby">def Object.const_missing(*args)
+  String
+end
+
+AbsolutelyIncorrectClassName.new("Param").upcase
+# =&gt; "PARAM"
+</code></pre>
+
+</section>
+<section>
+
+<h4>Triple equal sign</h4>
+<p>Shortcut for <code>obj.kind_of?(Klass)</code> and compare.</p>
+
+<pre><code class="language-ruby">1 === 1
+# =&gt; true
+Numeric === 1
+# =&gt; true
+String === "Hello world"
+# =&gt; true
+"Hello world" === "Hello world"
+# =&gt; true
+</code></pre>
+
+<p>Remember to keep the right position</p>
+
+<pre><code class="language-ruby">1 === 1
+# =&gt; true
+
+1 === Numeric
+# =&gt; false
+
+Numeric === 1
+# =&gt; true
+
+"Hello world" === String
+# =&gt; false
+</code></pre>
+
+</section>
+<section>
+
+<h3>Implementation</h3>
+<pre><code class="language-ruby">class MyKlass
+  def ===(other)
+		self == other ||
+    	other.kind_of?(self.class)
+  end
+end
+
+MyKlass === MyKlass.new
+# =&gt; true
+MyKlass.new === MyKlass.new
+# =&gt; true
+MyKlass.new === MyKlass
+# =&gt; false
+</code></pre>
+
+</section>
+<section>
+
+<h3>Questions?</h3>
+
+</section>
+<section>
+
+<h3>Thank you</h3>
+
+</section>
+
+  </div>
+</div>
+
+<script src="js/reveal.js"></script>
+
+
+<script>
+  (function() {
+  function extend( a, b ) {
+    for(var i in b) {
+      a[i] = b[i];
+    }
+  }
+  var baseOptions = {
+    transition: 'default',
+    hash: true,
+    dependencies: [
+      { src: 'plugin/markdown/marked.js' },
+      { src: 'plugin/markdown/markdown.js' },
+      { src: 'plugin/highlight/highlight.js' },
+      { src: 'plugin/notes/notes.js', async: true }
+    ]
+  };
+
+
+  var configOptions = {"controls":true,"progress":true,"history":true,"center":true}
+  var initializeOptions = {};
+  extend(initializeOptions, baseOptions);
+  extend(initializeOptions, configOptions);
+  Reveal.initialize(initializeOptions);
+})();
+
+</script>
+
+  </body>
+</html>
